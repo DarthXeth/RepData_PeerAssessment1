@@ -1,20 +1,173 @@
 # Reproducible Research: Peer Assessment 1
 
+This assignment directs us to write a report using the ['Activity monitoring dataset'](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip) that answers the following questions:
+
+* What is the mean total number of steps taken in a day?
+* What is the average daily activity pattern?
+* What is the overall impact of missing/NA data?
+* Are there differences in activity patterns between weekdays and weekends?
+
+
 
 ## Loading and preprocessing the data
+
+*(Note the dataset is included as a zip archive when the assignment repository was forked, and all code here assumes the user has the file unzipped and in the proper directory).*
+
+load the csv that contains the data into a dataframe
+```{r}
+activitySet = read.csv('activity.csv')
+str(activitySet)
+```
+
+The date/time stamp needs to be changed from a factor to a date
+```{r}
+activitySet$date <- as.Date(activitySet$date)
+str(activitySet)
+```
+
+And that gives us something like this:
+```{r}
+summary(activitySet)
+```
+
+Which is work-able (for now)
 
 
 
 ## What is mean total number of steps taken per day?
 
+To get the total steps per day, we'll create a new data frame using [plyr](http://cran.r-project.org/web/packages/plyr/index.html).
+
+```{r}
+library(plyr)
+dailySteps <- ddply(activitySet, .(date), summarise, totalSteps = sum(steps))
+str(dailySteps)
+```
+
+That gives us a dataframe that looks like this:
+```{r}
+summary(dailySteps)
+```
+*editorial comment: the maximum number of steps in this entire dataset is slightly more than 21,000 -- a very low number for an upper bound. I can thus imply that this dataset was collected from Americans*
+
+```{r}
+meanTotalStepsPerDay <- mean(dailySteps$totalSteps, na.rm = T)
+medianTotalStepsPerDay <- median(dailySteps$totalSteps, na.rm = T)
+```
+
+The mean total number of steps taken per day is `r format(meanTotalStepsPerDay, big.mark = ",")`.  
+The median total number of steps taken per day is `r format(medianTotalStepsPerDay, big.mark = ",")`.  
+
+Histogram
+```{r}
+hist(dailySteps$totalSteps, main = "Total Steps Taken Per Day", xlab = "Steps")
+```
+
 
 
 ## What is the average daily activity pattern?
+
+The plyr package lets us easily make a new dataset using dailyActivity that is easy to plot.
+
+```{r}
+dailyActivity <- ddply(activitySet, .(interval), summarise, avesteps = mean(steps, na.rm = T))
+str(dailyActivity)
+```
+
+That gives us a dataset that looks like this:
+```{r}
+summary(dailyActivity)
+```
+
+We can now easily plot the data frame and look at the daily activity pattern
+
+```{r}
+library(ggplot2)
+patternPlot <- ggplot(dailyActivity, aes(x = interval, y = avesteps))
+patternPlot <- patternPlot + geom_line()
+patternPlot <- patternPlot + labs(x="Every 5 min", y = "Avg # Steps", title = "Number of Steps Per 5 Minutes")
+patternPlot
+```
+
+Determine which 5-minute interval contains the maximum number of steps:
+```{r}
+maxSteps <- which.max(dailyActivity$avesteps)
+dailyActivity$avesteps[maxSteps]
+dailyActivity$interval[maxSteps]
+```
+The `r dailyActivity$interval[maxSteps]`th interval contains the maximum steps.
+
+The pattern I see is, on average, a person who is asleep the first chunk of the day with very little movement, a spike in movement as they awaken, typically morning exercise such as a jog, followed by lower levels of activity such as office work, trailing off at the end of the day as they go back to sleep.
 
 
 
 ## Imputing missing values
 
+Here we are going to try to determine the impact of missing values, by filling them in with a simple stand-in, and then comparing before and after. Let's look at the dataset:
+
+```{r}
+summary(activitySet)
+```
+
+We can see that the only variable with missing data is the 'steps' variable. Let's replace all missing step values with  the average number of steps for the associated 5 minute interval. In other words, if the average number of steps taken between 8:00 AM and 8:05 AM was 85, replace all NA's within that interval with 85. This is my overly-simplified take on a 'least-disruptive'strategy, which I 'borrowed' (*ahem*) from [here](https://github.com/mtpatter/RepData_PeerAssessment1/blob/master/PA1_template.Rmd)
+
+```{r}
+noNaActivity <- merge(activitySet, dailyActivity)
+str(noNaActivity)
+summary(noNaActivity)
+```
+
+Now fill in the NAs with the 5-min interval mean
+```{r}
+noNaActivity$steps[is.na(noNaActivity$step)] <- noNaActivity$avesteps
+noNaActivity$avesteps <- NULL
+str(noNaActivity)
+summary(noNaActivity)
+```
+
+Now we make a histogram of the total number of steps taken each day and calculate the mean and median total number of steps taken per day.
+
+First make a new data frame for the total daily steps.
+```{r}
+steps2 <- ddply(noNaActivity, .(date), summarise, totalSteps = sum(steps))
+str(steps2)
+summary(steps2)
+```
+
+Now make the histogram.
+```{r}
+hist(steps2$totalSteps, main = "Total Steps Taken/Day, NA-treatment", 
+    xlab = "Steps")
+
+meanSteps2 <- mean(steps2$totalSteps)
+medianSteps2 <- median(steps2$totalSteps)
+
+meanSteps2
+medianSteps2
+```
+Now the mean and median values are `r format(meanSteps2, big.mark = ",")` and `r format(medianSteps2, big.mark = ",")`, respectively. Both values have decreased; intuitively this makes sense to me, as I suspect people who are more likely to not wear their fitness trackers are more likely to be sedentary
+
 
 
 ## Are there differences in activity patterns between weekdays and weekends?
+Create a new factor variable in the NoNA dataset with two levels: "weekday" and "weekend."
+```{r}
+noNaActivity$dayofweek <- weekdays(noNaActivity$date) 
+head(noNaActivity)
+noNaActivity$dayofweek[noNaActivity$dayofweek == 'Saturday' | noNaActivity$dayofweek == 'Sunday'] <- 'weekend'
+noNaActivity$dayofweek[noNaActivity$dayofweek != 'weekend'] <- 'weekday'
+noNaActivity$dayofweek <- as.factor(noNaActivity$dayofweek)
+head(noNaActivity)
+str(noNaActivity)
+```
+
+Make a panel plot with the 5-minute interval on the x-axis, and the average number of steps taken on the y-axis
+
+```{r}
+weekdayActivity <- ddply(noNaActivity, .(interval,dayofweek), summarise, avesteps = mean(steps))
+summary(weekdayActivity)
+library(lattice)
+xyplot(avesteps ~ interval | dayofweek, data = weekdayActivity, type='l', lwd=2, layout=c(1,2), ylab = 'Number of steps')
+```
+
+We can see from the plot that on the weekends people are active throughout the day, whereas on the workdays activity spikes in the morning and then drops to mostly sedentary levels.
